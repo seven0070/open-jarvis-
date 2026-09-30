@@ -598,7 +598,13 @@ export async function publishSubagentRunPostimages(params: {
   } finally {
     if (matchesSubagentRunPreimages(params.runs, nextSnapshots)) {
       for (const selection of selected) {
-        replaceSubagentRunRecord(selection.entry, selection.previous);
+        const { previous, next } = selection;
+        // Unchanged staging must not revoke a native writer's captured delivery owner.
+        const restored =
+          previous.delivery && isDeepStrictEqual(previous.delivery, next.delivery)
+            ? { ...previous, delivery: next.delivery }
+            : previous;
+        replaceSubagentRunRecord(selection.entry, restored);
       }
     }
     capturing = false;
