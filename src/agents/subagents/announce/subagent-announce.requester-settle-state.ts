@@ -40,6 +40,7 @@ export function retainedYieldIdentity(state: RequesterSettleWakeBatchState) {
     ...(state.pauseNotice ? { pauseNotice: state.pauseNotice } : {}),
     ...(state.requesterYieldBatch === true ? { requesterYieldBatch: true as const } : {}),
     ...(state.afterRequesterYield === true ? { afterRequesterYield: true as const } : {}),
+    ...(state.yieldedFinalDeliverable === true ? { yieldedFinalDeliverable: true as const } : {}),
     ...(state.rearmGeneration !== undefined ? { rearmGeneration: state.rearmGeneration } : {}),
   };
 }
@@ -65,6 +66,7 @@ export function readSharedBatchState(
     ...(states.some((state) => state.afterRequesterYield === true)
       ? { afterRequesterYield: true }
       : {}),
+    ...(source?.yieldedFinalDeliverable === true ? { yieldedFinalDeliverable: true } : {}),
     ...(source?.rearmGeneration !== undefined ? { rearmGeneration: source.rearmGeneration } : {}),
     ...(source?.lastError !== undefined ? { lastError: source.lastError } : {}),
     deferralCount: Math.max(0, ...states.map((state) => state.deferralCount ?? 0)),

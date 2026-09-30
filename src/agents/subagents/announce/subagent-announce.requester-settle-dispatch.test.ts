@@ -106,6 +106,7 @@ vi.mock("./subagent-announce-delivery.js", () => ({
 
 import type { RequesterSettleWakeBatchState } from "./subagent-announce.requester-settle-state.js";
 import { maybeWakeRequesterAfterAllChildrenSettled } from "./subagent-announce.requester-settle-wake.js";
+import { makeSettledChild } from "./subagent-announce.requester-settle-wake.test-support.js";
 
 const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
   afterEach(async () => {
@@ -121,26 +122,19 @@ const SESSION_LANE = `session:${REQUESTER_KEY}`;
 const GLOBAL_LANE = "subagent-settle-dispatch-proof";
 
 function settledChild(): SubagentRunRecord {
-  return {
+  return makeSettledChild({
     runId: "settled-child",
-    childSessionKey: "agent:main:subagent:settled-child",
-    requesterSessionKey: REQUESTER_KEY,
-    requesterDisplayKey: "main",
     requesterAgentId: "main",
     task: "finish child work",
-    cleanup: "keep",
-    createdAt: 1_000,
-    execution: { status: "terminal", startedAt: 2_000, endedAt: 3_000, outcome: { status: "ok" } },
-    expectsCompletionMessage: true,
+    outcome: { status: "ok" },
     completion: { required: true, resultText: "child result", capturedAt: 3_000 },
-    delivery: { status: "delivered" },
     requesterSettleWake: {
       status: "pending",
       attemptCount: 0,
       requesterYieldBatch: true,
       rearmGeneration: 1,
     },
-  };
+  });
 }
 
 function createContext(): GatewayRequestContext {
@@ -387,14 +381,22 @@ describe("requester settle dispatch deadline", () => {
     expect(completeBatch).not.toHaveBeenCalled();
   });
 
-  it.each(["completed", "cancelled"] as const)(
-    "retains an in-flight private wake past the failure retry limit until %s",
-    async (outcome) => {
+  it.each(
+    (["completed", "cancelled"] as const).flatMap((outcome) =>
+      [true, false].map((legacy) => ({ outcome, legacy })),
+    ),
+  )(
+    "retains an in-flight private wake until $outcome, legacy=$legacy",
+    async ({ outcome, legacy }) => {
       vi.useFakeTimers();
       vi.setSystemTime(10_000);
       const child = settledChild();
       child.completionTarget = "parent";
       child.completionRequesterSessionId = "requester-session";
+      if (legacy) {
+        // An already-admitted unmarked batch retains the private-input policy.
+        Object.assign(child.requesterSettleWake!, { status: "dispatching", attemptCount: 1 });
+      }
       registryRead.listSubagentRunsForRequester.mockReturnValue([child]);
       deliver
         .mockResolvedValueOnce({
@@ -436,7 +438,8 @@ describe("requester settle dispatch deadline", () => {
       }
       const requestIds = deliver.mock.calls.map(([request]) => request.directIdempotencyKey);
       expect(requestIds).toHaveLength(6);
-      expect(new Set(requestIds).size).toBe(1);
+      const retryId = `${requestIds[0]}${legacy ? "" : ":retry-1"}`;
+      expect(requestIds.slice(1)).toEqual(Array(5).fill(retryId));
       await vi.advanceTimersByTimeAsync(30_000);
       if (outcome === "cancelled") {
         child.suppressCompletionDelivery = true;
