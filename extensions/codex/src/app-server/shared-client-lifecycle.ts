@@ -14,10 +14,52 @@ export type SharedCodexAppServerClientEntry = {
   anonymousLeases: number;
   pendingAcquires: number;
   closeWhenIdle: boolean;
+  idleRetirementTimer?: ReturnType<typeof setTimeout>;
   closeError?: Error;
   startupAbort?: AbortController;
   onStartedClientCallbacks: Set<(client: CodexAppServerClient) => void>;
 };
+
+/** Keep warm clients reusable briefly, but never retain an unleased process forever. */
+export const CODEX_APP_SERVER_IDLE_RETIREMENT_MS = 5 * 60_000;
+
+function cancelIdleRetirement(entry: SharedCodexAppServerClientEntry): void {
+  if (entry.idleRetirementTimer) {
+    clearTimeout(entry.idleRetirementTimer);
+    entry.idleRetirementTimer = undefined;
+  }
+}
+
+function scheduleIdleRetirement(entry: SharedCodexAppServerClientEntry): void {
+  cancelIdleRetirement(entry);
+  if (entry.closeWhenIdle || !entry.client || entry.activeLeases > 0 || entry.pendingAcquires > 0) {
+    return;
+  }
+  const timer = setTimeout(() => {
+    if (entry.idleRetirementTimer !== timer) {
+      return;
+    }
+    entry.idleRetirementTimer = undefined;
+    const state = getSharedCodexAppServerClientState();
+    const client = entry.client;
+    if (
+      !client ||
+      state.clients.get(entry.key) !== entry ||
+      entry.activeLeases > 0 ||
+      entry.pendingAcquires > 0
+    ) {
+      return;
+    }
+    const retired = retireSharedCodexAppServerClientIfCurrent(client);
+    if (retired?.closed) {
+      void client
+        .closeAndWait({ exitTimeoutMs: 2_000, forceKillDelayMs: 250 })
+        .catch(() => undefined);
+    }
+  }, CODEX_APP_SERVER_IDLE_RETIREMENT_MS);
+  timer.unref?.();
+  entry.idleRetirementTimer = timer;
+}
 
 export type SharedCodexAppServerClientStartup = {
   initialized: Promise<void>;
@@ -129,6 +171,7 @@ export function retireSharedCodexAppServerClientIfCurrent(
     return undefined;
   }
   if (currentEntry) {
+    cancelIdleRetirement(entry);
     state.clients.delete(entry.key);
     entry.closeWhenIdle = true;
   }
@@ -275,6 +318,7 @@ export function retainSharedClientEntry(
   counter: "activeLeases" | "pendingAcquires" = "activeLeases",
 ): () => void {
   let released = false;
+  cancelIdleRetirement(entry);
   entry[counter] += 1;
   return () => {
     if (released) {
@@ -291,5 +335,6 @@ export function releaseSharedClientEntry(
 ): void {
   entry[counter] -= 1;
   closeRetiredSharedClientEntryIfIdle(entry);
+  scheduleIdleRetirement(entry);
   notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState());
 }
