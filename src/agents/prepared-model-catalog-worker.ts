@@ -7,10 +7,12 @@ import {
 import { projectConfigOntoRuntimeSourceSnapshot } from "../config/runtime-source-projection.js";
 import { resolveStateDir } from "../config/state-dir.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { formatErrorMessage } from "../infra/errors.js";
 import { runtimeProcessEntrypoints } from "../infra/runtime-process-entrypoints.js";
 import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { WorkerTaskError, WorkerTaskPool } from "../infra/worker-task-pool.js";
 import type { Model } from "../llm/types.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveInstalledManifestRegistryIndexFingerprint } from "../plugins/manifest-registry-installed.js";
 import {
   getPluginCacheRetirementSignal,
@@ -120,6 +122,7 @@ export const PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS = 180_000;
 const GATEWAY_CATALOG_WORKERS = 1;
 // Leave room for source loaders and overlapping generations without inheriting the host heap budget.
 const CATALOG_WORKER_HEAP_LIMIT_MB = 512;
+const log = createSubsystemLogger("agents/prepared-model-runtime");
 type CatalogPool = WorkerTaskPool<PreparedModelCatalogWorkerTask, PreparedModelWorkerResult>;
 type CatalogPoolBorrower = {
   agentDir: string;
@@ -131,6 +134,7 @@ type GatewayCatalogPool = {
   cache: ReturnType<typeof getPluginMetadataSnapshotCache>;
   pool: CatalogPool;
   envFingerprint: string;
+  closing?: true;
   close: (error?: Error) => Promise<void>;
   borrowers: Set<CatalogPoolBorrower>;
   recovery?: Promise<void>;
@@ -140,18 +144,24 @@ type GatewayCatalogPool = {
 const gatewayCatalog = resolveGlobalSingleton<{
   current?: GatewayCatalogPool;
   rotating?: Promise<void>;
+  // Process lifetime: a failed pool is replaced, so the replacement's own counters restart at zero.
+  workerFailures?: number;
 }>(Symbol.for("openclaw.gatewayModelCatalogPool"), () => ({}));
 
 export function getPreparedModelCatalogWorkerPoolSnapshot() {
-  return (
-    gatewayCatalog.current?.pool.getSnapshot() ?? {
+  const { current, workerFailures = 0 } = gatewayCatalog;
+  return {
+    ...(current?.pool.getSnapshot() ?? {
       maxWorkers: GATEWAY_CATALOG_WORKERS,
       workers: 0,
       workersCreated: 0,
       activeTasks: 0,
       pendingTasks: 0,
-    }
-  );
+    }),
+    // A worker that exits while idle closes its pool before any request starts recovery.
+    // Recovery records the failure and then closes the owner, so it is not counted again.
+    workerFailures: workerFailures + (current?.pool.isClosed && !current.closing ? 1 : 0),
+  };
 }
 
 function createCatalogPool(
@@ -231,6 +241,14 @@ async function getGatewayCatalogPool(
         (current.recovery ??= (async () => {
           const borrowers = [...current.borrowers];
           if (!signal.aborted) {
+            // Only the pool itself closes without its owner: the worker failed, exited or timed out.
+            // Background renewals swallow that rejection, so record it here, once per pool.
+            if (!current.closing) {
+              gatewayCatalog.workerFailures = (gatewayCatalog.workerFailures ?? 0) + 1;
+              log.warn(
+                `model catalog worker failed; republishing ${borrowers.filter((borrower) => borrower.isCurrent()).length} agent catalog(s) on a new worker (failure ${gatewayCatalog.workerFailures} since start): ${formatErrorMessage(error)}`,
+              );
+            }
             for (const borrower of borrowers) {
               borrower.notifyRecovery(error);
             }
@@ -248,6 +266,7 @@ async function getGatewayCatalogPool(
           await recoverPreparedModelRuntimeCatalogWorker(borrowers);
         })()),
       close: async (error) => {
+        current.closing = true;
         signal.removeEventListener("abort", retire);
         await current.pool.close(error);
         current.validate = undefined;
