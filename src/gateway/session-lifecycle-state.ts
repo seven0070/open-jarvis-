@@ -357,6 +357,7 @@ export async function persistGatewaySessionLifecycleEvent(params: {
   sessionKey: string;
   agentId?: string;
   event: LifecycleEventLike;
+  timeoutPartialText?: string;
   assertCommitAllowed?: () => void;
   expectedWriter?: {
     runId: string;
@@ -404,7 +405,14 @@ export async function persistGatewaySessionLifecycleEvent(params: {
 
   const exactCronRun = parseCronRunScopeSuffix(sessionEntry.canonicalKey).runId !== undefined;
   let terminalRecovery: { runId: string; outcome: AgentRunTerminalOutcome } | undefined;
-  let failedRun: { runId: string; error: unknown; errorKind?: "state_contention" } | undefined;
+  let failedRun:
+    | {
+        runId: string;
+        error: unknown;
+        status: "failed" | "timeout";
+        errorKind?: "state_contention";
+      }
+    | undefined;
   const persisted = await patchSessionEntryCore(
     {
       storePath: sessionEntry.storePath,
@@ -500,6 +508,7 @@ export async function persistGatewaySessionLifecycleEvent(params: {
           error:
             resolveTerminalOutcome(params.event).error ??
             (patch.status === "timeout" ? "Run timed out" : undefined),
+          status: patch.status,
         };
       }
       const recoveryTerminalIsCurrent =
@@ -546,7 +555,7 @@ export async function persistGatewaySessionLifecycleEvent(params: {
     restartRecoveryLog[terminalRecovery.outcome.status === "ok" ? "info" : "warn"](message);
   }
   if (persisted && failedRun) {
-    const { runId, error, errorKind } = failedRun;
+    const { runId, error, status, errorKind } = failedRun;
     // Only accepted errors pay for branch navigation; assistant detection and
     // report deduplication share the appender's authoritative write snapshot.
     await recordGatewaySessionRunFailure({
@@ -559,6 +568,8 @@ export async function persistGatewaySessionLifecycleEvent(params: {
       },
       runId,
       error,
+      status,
+      timeoutPartialText: params.timeoutPartialText,
       errorKind,
       assertCommitAllowed: params.assertCommitAllowed,
     });
