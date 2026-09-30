@@ -1,4 +1,5 @@
 import { clearEmbeddedSessionPromptStates } from "../../agents/embedded-agent-runner/session-prompt-state.js";
+import { retireExecSteeringForSessionKeys } from "../../agents/exec-steering-queue.js";
 import { killSessionSubagentRuns } from "../../agents/subagents/registry/subagent-control-kill.js";
 import { loadExactSessionEntryReadOnly } from "../../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
@@ -72,6 +73,13 @@ export function clearSessionResetRuntimeState(
 ): ClearSessionResetRuntimeStateResult {
   clearEmbeddedSessionPromptStates(keys);
   const cleared = clearSessionQueues(keys);
+  // Retire pending and leased exec completions bound to these session keys so a
+  // reset conversation cannot lease stale background-exec output into its next
+  // turn. Mirrors the durable system-event cleanup below.
+  retireExecSteeringForSessionKeys({
+    requesterSessionKeys: cleared.keys,
+    ownerAgentId: opts.agentId,
+  });
   let systemEventsCleared = 0;
 
   for (const key of cleared.keys) {
