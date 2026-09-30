@@ -41,6 +41,16 @@ export type LobsterRunner = {
   run: (params: LobsterRunnerParams) => Promise<LobsterEnvelope>;
 };
 
+type EmbeddedLlmAdapter = {
+  source?: string;
+  invoke: (params: {
+    env?: Record<string, string | undefined>;
+    args?: Record<string, unknown>;
+    payload: unknown;
+    signal?: AbortSignal;
+  }) => Promise<unknown>;
+};
+
 type EmbeddedToolContext = {
   cwd?: string;
   env?: Record<string, string | undefined>;
@@ -49,6 +59,7 @@ type EmbeddedToolContext = {
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
   signal?: AbortSignal;
+  llmAdapters?: Record<string, EmbeddedLlmAdapter>;
 };
 
 type EmbeddedToolEnvelope = {
@@ -204,6 +215,7 @@ async function loadEmbeddedToolRuntimeFromPackage(): Promise<EmbeddedToolRuntime
 
 export function createEmbeddedLobsterRunner(options?: {
   loadRuntime?: () => Promise<EmbeddedToolRuntime>;
+  llmAdapters?: Record<string, EmbeddedLlmAdapter>;
 }): LobsterRunner {
   const loadRuntime = options?.loadRuntime ?? loadEmbeddedToolRuntimeFromPackage;
   let runtimePromise: Promise<EmbeddedToolRuntime> | undefined;
@@ -221,6 +233,7 @@ export function createEmbeddedLobsterRunner(options?: {
           stdout: createLimitedSink(maxStdoutBytes, "stdout"),
           stderr: createLimitedSink(maxStdoutBytes, "stderr"),
           signal,
+          ...(options?.llmAdapters ? { llmAdapters: options.llmAdapters } : {}),
         };
         let envelope: EmbeddedToolEnvelope;
 
