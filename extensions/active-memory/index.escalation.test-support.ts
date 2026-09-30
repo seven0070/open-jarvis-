@@ -27,7 +27,7 @@ type ActiveMemoryEscalationIntegrationTestHarness = {
     event: Record<string, unknown>,
     context?: Record<string, unknown>,
   ) => Promise<unknown>;
-  setDecisionAssistance: (enabled: boolean) => void;
+  updateConfigFile: (update: (config: Record<string, unknown>) => Record<string, unknown>) => void;
   skippedRecallContext: string;
 };
 
@@ -60,9 +60,21 @@ export function registerActiveMemoryEscalationIntegrationTests({
   registerPluginConfig,
   runEmbeddedAgent,
   runPromptBuild,
-  setDecisionAssistance,
+  updateConfigFile,
   skippedRecallContext,
 }: ActiveMemoryEscalationIntegrationTestHarness): void {
+  const setDecisionAssistance = (enabled: boolean) =>
+    updateConfigFile((config) => {
+      const agents = (config.agents ?? {}) as Record<string, unknown>;
+      const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
+      return {
+        ...config,
+        agents: {
+          ...agents,
+          defaults: { ...defaults, experimental: { decisionAssistance: enabled } },
+        },
+      };
+    });
   const enableDecisionEscalation = (outcome: DecisionOutcome) => {
     evaluateDecision.mockReset();
     evaluateDecision.mockResolvedValue(outcome);

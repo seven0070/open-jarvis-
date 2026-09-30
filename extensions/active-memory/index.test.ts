@@ -1714,17 +1714,7 @@ describe("active-memory plugin", () => {
     runEmbeddedAgent,
     runPromptBuild,
     evaluateDecision: hoisted.evaluateDecision,
-    setDecisionAssistance: (enabled) => {
-      const agents = (configFile.agents ?? {}) as Record<string, unknown>;
-      const defaults = (agents.defaults ?? {}) as Record<string, unknown>;
-      configFile = {
-        ...configFile,
-        agents: {
-          ...agents,
-          defaults: { ...defaults, experimental: { decisionAssistance: enabled } },
-        },
-      };
-    },
+    updateConfigFile: (update) => (configFile = update(configFile)),
     skippedRecallContext,
   });
 
