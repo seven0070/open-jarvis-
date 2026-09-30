@@ -6,8 +6,10 @@ import {
   ACTIVE_MEMORY_ESCALATION_RUBRIC_VERSION,
   buildActiveMemoryEscalationDecisionBatch,
   createActiveMemoryDecisionEscalationDecider,
+  createActiveMemoryTurnEscalationDecider,
   isActiveMemoryDecisionEscalationEligible,
   mapActiveMemoryEscalationDecisionOutcome,
+  readActiveMemoryDecisionConsent,
 } from "./decision-escalation.js";
 
 function booleanOutcome(probabilityTrue: number): DecisionOutcome {
@@ -254,6 +256,44 @@ describe("active-memory decision escalation", () => {
       }
     });
 
+    it.each([
+      ["the caller aborts", true],
+      ["its budget elapses", false],
+    ] as const)(
+      "stops polling when %s even if the provider never settles",
+      async (_label, abortCaller) => {
+        vi.useFakeTimers();
+        try {
+          const caller = new AbortController();
+          const isStillAllowed = vi.fn(() => true);
+          const decider = createActiveMemoryDecisionEscalationDecider({
+            decisions: { evaluate: () => new Promise<never>(() => {}) },
+            agentId: "main",
+            isStillAllowed,
+          });
+
+          void decider.decide({
+            message: "What did we decide last time?",
+            searchQuery: "What did we decide last time?",
+            signal: caller.signal,
+            timeoutMs: 100,
+          });
+          await vi.advanceTimersByTimeAsync(30);
+          if (abortCaller) {
+            caller.abort();
+          }
+          await vi.advanceTimersByTimeAsync(200);
+          const checks = isStillAllowed.mock.calls.length;
+          await vi.advanceTimersByTimeAsync(1_000);
+
+          expect(isStillAllowed.mock.calls.length).toBe(checks);
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
     it("uses the answer and stops polling when consent holds", async () => {
       vi.useFakeTimers();
       try {
@@ -280,6 +320,82 @@ describe("active-memory decision escalation", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe("live consent", () => {
+    const configWith = (options: {
+      decisionAssistance?: boolean;
+      escalationDecision?: boolean;
+      mode?: string;
+      enabled?: boolean;
+    }) =>
+      ({
+        agents: { defaults: { experimental: { decisionAssistance: options.decisionAssistance } } },
+        plugins: {
+          entries: {
+            "active-memory": {
+              enabled: options.enabled ?? true,
+              config: {
+                mode: options.mode ?? "escalate",
+                escalationDecision: options.escalationDecision,
+              },
+            },
+          },
+        },
+      }) as OpenClawConfig;
+
+    it.each([
+      ["both opt-ins", { decisionAssistance: true, escalationDecision: true }, true],
+      ["no Decision assistance", { decisionAssistance: false, escalationDecision: true }, false],
+      ["no escalationDecision", { decisionAssistance: true }, false],
+      [
+        "always mode",
+        { decisionAssistance: true, escalationDecision: true, mode: "always" },
+        false,
+      ],
+      [
+        "the plugin disabled",
+        { decisionAssistance: true, escalationDecision: true, enabled: false },
+        false,
+      ],
+    ] as const)("reads consent with %s as %s", (_label, options, expected) => {
+      expect(readActiveMemoryDecisionConsent(configWith(options))).toBe(expected);
+    });
+
+    it("builds a turn decider only when requested and eligible", () => {
+      const debug = vi.fn();
+      const base = {
+        agentId: "main",
+        readCurrentConfig: () => configWith({ decisionAssistance: true, escalationDecision: true }),
+        decisions: { evaluate: async () => booleanOutcome(1) },
+        logger: { debug },
+      };
+      expect(
+        createActiveMemoryTurnEscalationDecider({
+          ...base,
+          requested: false,
+          config: configWith({ decisionAssistance: true }),
+        }),
+      ).toBeUndefined();
+      expect(debug).not.toHaveBeenCalled();
+      expect(
+        createActiveMemoryTurnEscalationDecider({
+          ...base,
+          requested: true,
+          config: configWith({ decisionAssistance: false }),
+        }),
+      ).toBeUndefined();
+      expect(debug).toHaveBeenCalledWith(
+        "active-memory: escalation decision requires Decision assistance; using built-in matcher",
+      );
+      expect(
+        createActiveMemoryTurnEscalationDecider({
+          ...base,
+          requested: true,
+          config: configWith({ decisionAssistance: true, escalationDecision: true }),
+        }),
+      ).toBeDefined();
     });
   });
 

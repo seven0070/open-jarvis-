@@ -5,7 +5,10 @@ import type {
   DecisionRuntimeV1,
   UnavailableReason,
 } from "openclaw/plugin-sdk/decisions";
+import { resolveLivePluginConfigObject } from "openclaw/plugin-sdk/plugin-config-runtime";
+import { normalizePluginConfig } from "./config.js";
 import type { RecallEscalationDecider } from "./escalation.js";
+import { isActiveMemoryPluginEnabled } from "./session-policy.js";
 
 export const ACTIVE_MEMORY_ESCALATION_DECISION_PURPOSE = "active-memory/escalation";
 export const ACTIVE_MEMORY_ESCALATION_RUBRIC_VERSION = "active-memory-escalation/1";
@@ -32,6 +35,24 @@ const DEEP_RECALL_QUESTION = {
  */
 export function isActiveMemoryDecisionEscalationEligible(config: OpenClawConfig): boolean {
   return config.agents?.defaults?.experimental?.decisionAssistance === true;
+}
+
+/**
+ * Live consent for one escalation decision: Active Memory enabled in escalate
+ * mode with `escalationDecision`, plus Decision assistance. Derived from the
+ * given configuration exactly as the hook derives its invocation settings.
+ */
+export function readActiveMemoryDecisionConsent(config: OpenClawConfig): boolean {
+  const pluginConfig = isActiveMemoryPluginEnabled(config)
+    ? (resolveLivePluginConfigObject(() => config, "active-memory") ?? {})
+    : { enabled: false };
+  const current = normalizePluginConfig(pluginConfig, config);
+  return (
+    current.enabled &&
+    current.mode === "escalate" &&
+    current.escalationDecision &&
+    isActiveMemoryDecisionEscalationEligible(config)
+  );
 }
 
 export function buildActiveMemoryEscalationDecisionBatch(params: {
@@ -105,6 +126,11 @@ export function createActiveMemoryDecisionEscalationDecider(params: {
           consent.abort();
         }
       }, pollMs);
+      // Polling ends with the decision: when the caller aborts (including its
+      // deadline) or the budget elapses, even if a provider never settles.
+      const stopPolling = () => clearInterval(poll);
+      const pollDeadline = setTimeout(stopPolling, timeoutMs);
+      signal.addEventListener("abort", stopPolling, { once: true });
       try {
         let outcome: DecisionOutcome;
         try {
@@ -133,8 +159,43 @@ export function createActiveMemoryDecisionEscalationDecider(params: {
         }
         return mapped.result;
       } finally {
-        clearInterval(poll);
+        stopPolling();
+        clearTimeout(pollDeadline);
+        signal.removeEventListener("abort", stopPolling);
       }
     },
   };
+}
+
+/**
+ * Builds the decider for one escalate-mode turn, or returns undefined so the
+ * built-in matcher decides. Logs why an opted-in turn cannot use its model.
+ */
+export function createActiveMemoryTurnEscalationDecider(params: {
+  requested: boolean;
+  agentId: string | undefined;
+  config: OpenClawConfig;
+  readCurrentConfig: () => OpenClawConfig;
+  decisions: Pick<DecisionRuntimeV1, "evaluate">;
+  logger: { debug?: (message: string) => void };
+}): RecallEscalationDecider | undefined {
+  if (!params.requested) {
+    return undefined;
+  }
+  if (!params.agentId || !isActiveMemoryDecisionEscalationEligible(params.config)) {
+    params.logger.debug?.(
+      "active-memory: escalation decision requires Decision assistance; using built-in matcher",
+    );
+    return undefined;
+  }
+  return createActiveMemoryDecisionEscalationDecider({
+    decisions: params.decisions,
+    agentId: params.agentId,
+    isStillAllowed: () => readActiveMemoryDecisionConsent(params.readCurrentConfig()),
+    onAbstain: (reason) => {
+      params.logger.debug?.(
+        `active-memory: escalation decision unavailable reason=${reason}; using built-in matcher`,
+      );
+    },
+  });
 }

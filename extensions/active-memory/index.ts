@@ -13,10 +13,7 @@ import {
   normalizePluginConfig,
   readActiveMemoryConfig,
 } from "./config.js";
-import {
-  createActiveMemoryDecisionEscalationDecider,
-  isActiveMemoryDecisionEscalationEligible,
-} from "./decision-escalation.js";
+import { createActiveMemoryTurnEscalationDecider } from "./decision-escalation.js";
 import {
   ACTIVE_MEMORY_ESCALATION_DECISION_TIMEOUT_MS,
   resolveRecallEscalationDecisionWithDecider,
@@ -441,46 +438,17 @@ export default definePluginEntry({
               });
               return laneOneContext ? { prependContext: laneOneContext } : undefined;
             }
-            const escalationDecisionRequested =
-              invocationConfig.mode === "escalate" &&
-              !laneOne.hasStrongHit &&
-              invocationConfig.escalationDecision;
-            const escalationDecider =
-              escalationDecisionRequested &&
-              effectiveAgentId &&
-              isActiveMemoryDecisionEscalationEligible(liveConfig)
-                ? createActiveMemoryDecisionEscalationDecider({
-                    decisions: api.runtime.decisions,
-                    agentId: effectiveAgentId,
-                    isStillAllowed: () => {
-                      const currentConfig = readCurrentConfig();
-                      const currentPluginConfig = isActiveMemoryPluginEnabled(currentConfig)
-                        ? (resolveLivePluginConfigObject(
-                            () => currentConfig,
-                            "active-memory",
-                            api.pluginConfig as Record<string, unknown>,
-                          ) ?? {})
-                        : { enabled: false };
-                      const current = normalizePluginConfig(currentPluginConfig, currentConfig);
-                      return (
-                        current.enabled &&
-                        current.mode === "escalate" &&
-                        current.escalationDecision &&
-                        isActiveMemoryDecisionEscalationEligible(currentConfig)
-                      );
-                    },
-                    onAbstain: (reason) => {
-                      api.logger.debug?.(
-                        `active-memory: escalation decision unavailable reason=${reason}; using built-in matcher`,
-                      );
-                    },
-                  })
-                : undefined;
-            if (escalationDecisionRequested && !escalationDecider) {
-              api.logger.debug?.(
-                "active-memory: escalation decision requires Decision assistance; using built-in matcher",
-              );
-            }
+            const escalationDecider = createActiveMemoryTurnEscalationDecider({
+              requested:
+                invocationConfig.mode === "escalate" &&
+                !laneOne.hasStrongHit &&
+                invocationConfig.escalationDecision,
+              agentId: effectiveAgentId,
+              config: liveConfig,
+              readCurrentConfig,
+              decisions: api.runtime.decisions,
+              logger: api.logger,
+            });
             const escalationDecisionBudgetMs = Math.min(
               ACTIVE_MEMORY_ESCALATION_DECISION_TIMEOUT_MS,
               Math.max(0, hookDeadline.remainingMs() - TRIGGER_LOOKUP_SETTLE_RESERVE_MS),
