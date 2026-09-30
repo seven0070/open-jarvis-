@@ -520,6 +520,7 @@ export function resolveGatewayScopedTools(
           inboundEventKind: params.inboundEventKind,
           requireExplicitMessageTarget: params.requireExplicitMessageTarget,
           runtimeToolAllowlist: [...mediatedToolNames],
+          operationalRunInstance: params.admittedRunContext?.operationalRunInstance,
           exec: execDefaults
             ? {
                 host: execDefaults.host,

@@ -139,10 +139,13 @@ export function createExecTool(
     );
   }
   const notifyOnExit = defaults?.notifyOnExit !== false;
-  const backgroundFollowUp = notifyOnExit
-    ? BACKGROUND_EXEC_FOLLOW_UP
-    : `${BACKGROUND_EXEC_FOLLOW_UP} Automatic completion wake is disabled (tools.exec.notifyOnExit=false). If the task needs this result, use poll with a timeout to collect it before ending the turn, unless another continuation is already arranged.`;
   const notifyOnExitEmptySuccess = resolveNotifyOnExitEmptySuccess(defaults);
+  const backgroundFollowUp =
+    notifyOnExit && notifyOnExitEmptySuccess
+      ? `Completion will wake this conversation automatically. If only waiting remains, report that the job is running and end this turn; do not keep polling. ${BACKGROUND_EXEC_FOLLOW_UP}`
+      : notifyOnExit
+        ? `${BACKGROUND_EXEC_FOLLOW_UP} Completion wakes this conversation on output or failure; empty successful jobs are silent (tools.exec.notifyOnExitEmptySuccess=false). Arrange continuation or collect the result before ending the turn if empty success matters.`
+        : `${BACKGROUND_EXEC_FOLLOW_UP} Automatic completion wake is disabled (tools.exec.notifyOnExit=false). If the task needs this result, use poll with a timeout to collect it before ending the turn, unless another continuation is already arranged.`;
   const notifySessionKey = normalizeOptionalString(
     defaults?.notifySessionKey ?? defaults?.runSessionKey ?? defaults?.sessionKey,
   );
