@@ -13081,13 +13081,34 @@ public struct QuestionListResult: Codable, Sendable {
 public struct QuestionOption: Codable, Sendable {
     public let label: String
     public let description: String?
+    public let value: String?
+    public let thumbnail: String?
+    public let resourceuri: String?
+    public let preview: AnyCodable?
 
     public init(
         label: String,
-        description: String? = nil)
+        description: String? = nil,
+        value: String? = nil,
+        thumbnail: String? = nil,
+        resourceuri: String? = nil,
+        preview: AnyCodable? = nil)
     {
         self.label = label
         self.description = description
+        self.value = value
+        self.thumbnail = thumbnail
+        self.resourceuri = resourceuri
+        self.preview = preview
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case description
+        case value
+        case thumbnail
+        case resourceuri = "resourceUri"
+        case preview
     }
 }
 
@@ -13181,7 +13202,12 @@ public struct QuestionRequestQuestion: Codable, Sendable {
     public let question: String
     public let url: String?
     public let options: [QuestionOption]
+    public let presentation: String?
+    public let resource: [String: AnyCodable]?
     public let multiselect: Bool?
+    public let answerformat: String?
+    public let allowempty: Bool?
+    public let defaultanswers: [String]?
     public let isother: Bool?
     public let issecret: Bool?
     public let secretstore: QuestionSecretStoreBinding?
@@ -13192,7 +13218,12 @@ public struct QuestionRequestQuestion: Codable, Sendable {
         question: String,
         url: String? = nil,
         options: [QuestionOption],
+        presentation: String? = nil,
+        resource: [String: AnyCodable]? = nil,
         multiselect: Bool? = nil,
+        answerformat: String? = nil,
+        allowempty: Bool? = nil,
+        defaultanswers: [String]? = nil,
         isother: Bool? = nil,
         issecret: Bool? = nil,
         secretstore: QuestionSecretStoreBinding? = nil)
@@ -13202,7 +13233,12 @@ public struct QuestionRequestQuestion: Codable, Sendable {
         self.question = question
         self.url = url
         self.options = options
+        self.presentation = presentation
+        self.resource = resource
         self.multiselect = multiselect
+        self.answerformat = answerformat
+        self.allowempty = allowempty
+        self.defaultanswers = defaultanswers
         self.isother = isother
         self.issecret = issecret
         self.secretstore = secretstore
@@ -13214,7 +13250,12 @@ public struct QuestionRequestQuestion: Codable, Sendable {
         case question
         case url
         case options
+        case presentation
+        case resource
         case multiselect = "multiSelect"
+        case answerformat = "answerFormat"
+        case allowempty = "allowEmpty"
+        case defaultanswers = "defaultAnswers"
         case isother = "isOther"
         case issecret = "isSecret"
         case secretstore = "secretStore"
@@ -13245,7 +13286,12 @@ public struct Question: Codable, Sendable {
     public let question: String
     public let url: String?
     public let options: [QuestionOption]
+    public let presentation: String?
+    public let resource: [String: AnyCodable]?
     public let multiselect: Bool?
+    public let answerformat: String?
+    public let allowempty: Bool?
+    public let defaultanswers: [String]?
     public let isother: Bool?
     public let issecret: Bool?
     public let secretstore: QuestionSecretStoreBinding?
@@ -13257,7 +13303,12 @@ public struct Question: Codable, Sendable {
         question: String,
         url: String? = nil,
         options: [QuestionOption],
+        presentation: String? = nil,
+        resource: [String: AnyCodable]? = nil,
         multiselect: Bool? = nil,
+        answerformat: String? = nil,
+        allowempty: Bool? = nil,
+        defaultanswers: [String]? = nil,
         isother: Bool? = nil,
         issecret: Bool? = nil,
         secretstore: QuestionSecretStoreBinding? = nil,
@@ -13268,7 +13319,12 @@ public struct Question: Codable, Sendable {
         self.question = question
         self.url = url
         self.options = options
+        self.presentation = presentation
+        self.resource = resource
         self.multiselect = multiselect
+        self.answerformat = answerformat
+        self.allowempty = allowempty
+        self.defaultanswers = defaultanswers
         self.isother = isother
         self.issecret = issecret
         self.secretstore = secretstore
@@ -13281,7 +13337,12 @@ public struct Question: Codable, Sendable {
         case question
         case url
         case options
+        case presentation
+        case resource
         case multiselect = "multiSelect"
+        case answerformat = "answerFormat"
+        case allowempty = "allowEmpty"
+        case defaultanswers = "defaultAnswers"
         case isother = "isOther"
         case issecret = "isSecret"
         case secretstore = "secretStore"
