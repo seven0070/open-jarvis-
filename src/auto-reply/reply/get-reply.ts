@@ -107,7 +107,7 @@ import { SessionResetCleanupError } from "./session-reset-cleanup.js";
 import { initSessionState, resolveReplySessionPreprocessingState } from "./session.js";
 import { mergeSkillFilters } from "./skill-filter.js";
 import { stageRemoteInboundMediaIfNeeded } from "./stage-remote-inbound-media.js";
-import { isStaleHeartbeatAutoFallbackOverride } from "./stored-model-override.js";
+import { isStaleAutoFallbackOverride } from "./stored-model-override.js";
 import { createTypingController } from "./typing.js";
 
 type ResetCommandAction = "new" | "reset";
@@ -768,9 +768,9 @@ export async function getReplyFromConfig(
       sessionCtx.ParentSessionKey,
     defaultProvider,
   });
-  const staleHeartbeatAutoFallbackOverride =
+  const staleAutoFallbackOverride =
     !sessionModelSelectionLocked &&
-    isStaleHeartbeatAutoFallbackOverride({
+    isStaleAutoFallbackOverride({
       isHeartbeat: opts?.isHeartbeat === true,
       hasResolvedHeartbeatModelOverride,
       sessionEntry,
@@ -787,7 +787,7 @@ export async function getReplyFromConfig(
   if (
     storedModelOverride?.model &&
     !hasResolvedHeartbeatModelOverride &&
-    !staleHeartbeatAutoFallbackOverride &&
+    !staleAutoFallbackOverride &&
     !staleLegacyAutoFallbackWithoutOrigin
   ) {
     provider = storedModelOverride.provider ?? defaultProvider;
@@ -796,7 +796,7 @@ export async function getReplyFromConfig(
   const canApplyAutoFallbackPrimaryProbe =
     !sessionModelSelectionLocked &&
     !hasResolvedHeartbeatModelOverride &&
-    !staleHeartbeatAutoFallbackOverride;
+    !staleAutoFallbackOverride;
   const autoFallbackPrimaryProbe = canApplyAutoFallbackPrimaryProbe
     ? resolveAutoFallbackPrimaryProbe({
         entry: sessionEntry,
@@ -807,7 +807,7 @@ export async function getReplyFromConfig(
     : undefined;
   const hasEffectiveStoredModelOverride =
     Boolean(storedModelOverride || hasSessionModelOverride) &&
-    !staleHeartbeatAutoFallbackOverride &&
+    !staleAutoFallbackOverride &&
     !staleLegacyAutoFallbackWithoutOrigin;
   if (
     !hasResolvedHeartbeatModelOverride &&
